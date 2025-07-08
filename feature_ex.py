@@ -3,11 +3,8 @@ import os
 import numpy as np
 import pickle
 
-def preprocess_image(path):
-    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-    img = cv2.resize(img, (300, 150))
-    _, img = cv2.threshold(img, 127, 255, cv2.THRESH_BINARY_INV)
-    return img
+from identify import preprocess_image
+
 
 def extract_features(img):
     moments = cv2.moments(img)

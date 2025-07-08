@@ -88,11 +88,8 @@ def main():
             (0, 255, 0),
             1,
         )
-
-        h, w = crop.shape[:2]
-        crop_resized = cv2.resize(crop, (w * 4, h * 4))
         # Display each crop
-        cv2.imshow(f"Signature {idx}: {person}", crop_resized)
+        cv2.imshow(f"Signature {idx}: {label}", crop)
 
     # Show full annotated image scaled down
     h, w = annotated.shape[:2]
