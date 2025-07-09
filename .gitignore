@@ -1,0 +1,5 @@
+test_server/*.pdf
+test_server/*.png
+test_server/*.jpg
+assets/
+__pycache__/
