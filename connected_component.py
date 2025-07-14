@@ -3,7 +3,7 @@ import numpy as np
 from scipy.spatial.distance import pdist
 
 # Paths
-INPUT_IMAGE_PATH = 'assets/signature.jpg'
+INPUT_IMAGE_PATH = 'assets/5.png'
 OUTPUT_IMAGE_PATH = 'signature_cc_removed.png'
 
 # Load image
@@ -12,11 +12,11 @@ if image is None:
     print("Failed to load image.")
 else:
     h, w = image.shape[:2]
-    thresh_dist = 0.5 * ((w + h) / 2)  # threshold
+    thresh_dist = 0.75 * ((w + h) / 2)  # threshold
 
     # Convert to grayscale and binary mask (non-white pixels)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    binary = (gray < 128).astype(np.uint8) * 255
+    binary = (gray < 100).astype(np.uint8) * 255
 
     # Connected components
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)

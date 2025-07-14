@@ -1,109 +1,64 @@
-# yolo.py
-import cv2
-from transformers import AutoImageProcessor, AutoModelForObjectDetection
-from pdf2image import convert_from_path
-from tkinter import Tk, filedialog
-import numpy as np
 import torch
-import os
+from PIL import Image
+from transformers import AutoImageProcessor, AutoModelForObjectDetection
+import cv2
+import numpy as np
 
-from identify import identify_signature
+# Load YOLOS signature detection model
+repo_id = "mdefrance/yolos-base-signature-detection"
+processor = AutoImageProcessor.from_pretrained(repo_id)
+model = AutoModelForObjectDetection.from_pretrained(repo_id)
+model.eval()
 
-def browse_pdf():
-    root = Tk()
-    root.withdraw()
-    file_path = filedialog.askopenfilename(
-        title="Select PDF document",
-        filetypes=[("PDF files", "*.pdf")]
-    )
-    return file_path
+def detect_and_show(image_path):
+    # Load image and convert to NumPy
+    pil_image = Image.open(image_path).convert("RGB")
+    np_image = np.array(pil_image)
 
-def pdf_to_image(pdf_path):
-    pages = convert_from_path(
-        pdf_path,
-        dpi=300,
-        first_page=1,
-        last_page=1,
-        poppler_path=r"C:\poppler-24.08.0\Library\bin"
-    )
-    if pages:
-        return pages[0]
-    else:
-        raise ValueError("No pages found in PDF")
+    # Calculate 25% padding
+    h, w, _ = np_image.shape
+    pad_top = pad_bottom = int(h * 0.25)
+    pad_left = pad_right = int(w * 0.25)
 
-def main():
-    pdf_path = browse_pdf()
-    if not pdf_path:
-        print("No file selected. Exiting.")
-        return
-    print(f"Selected PDF: {pdf_path}")
+    # Apply padding
+    padded_np = cv2.copyMakeBorder(np_image, pad_top, pad_bottom, pad_left, pad_right,
+                                   borderType=cv2.BORDER_CONSTANT, value=[255, 255, 255])
 
-    pil_image = pdf_to_image(pdf_path)
-    cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    # Convert back to PIL
+    padded_pil = Image.fromarray(padded_np)
+    padded_cv = cv2.cvtColor(padded_np, cv2.COLOR_RGB2BGR)
 
-    # Load YOLOS signature detector
-    repo_id = "mdefrance/yolos-base-signature-detection"
-    processor = AutoImageProcessor.from_pretrained(repo_id)
-    model = AutoModelForObjectDetection.from_pretrained(repo_id)
-    model.eval()
-
-    # Prepare input tensor
-    inputs = processor(images=pil_image, return_tensors="pt")
+    # Run YOLOS detection
+    inputs = processor(images=padded_pil, return_tensors="pt")
     with torch.no_grad():
         outputs = model(**inputs)
 
-    # Post-process to get detections
-    target_size = pil_image.size[::-1]  # (height, width)
-    detections_raw = processor.post_process_object_detection(
+    target_size = padded_pil.size[::-1]  # (H, W)
+    results = processor.post_process_object_detection(
         outputs, threshold=0.5, target_sizes=[target_size]
     )[0]
 
-    if len(detections_raw["scores"]) == 0:
-        print("No signatures detected.")
-        return
+    boxes = results["boxes"]
+    scores = results["scores"]
+    labels = results["labels"]
 
-    # Annotate image and show crops
-    annotated = cv_image.copy()
-    num = len(detections_raw["scores"])
-    for idx in range(num):
-        box = detections_raw["boxes"][idx].int().tolist()
-        x0, y0, x1, y1 = box
-        # Crop signature region
-        crop = annotated[y0:y1, x0:x1]
-        crop_path = f"crop_{idx}.png"
-        cv2.imwrite(crop_path, crop)
+    print(f"\n{len(boxes)} signature(s) found:")
+    for idx, (box, score) in enumerate(zip(boxes, scores), 1):
+        x0, y0, x1, y1 = map(int, box.tolist())
+        print(f" - Box {idx}: (x0={x0}, y0={y0}, x1={x1}, y1={y1}), score={score:.2f}")
+        cv2.rectangle(padded_cv, (x0, y0), (x1, y1), (0, 255, 0), 2)
+        cv2.putText(padded_cv, f"{score:.2f}", (x0, y0 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-        # Identify signature
-        person, score = identify_signature(crop_path)
-
-        # Draw rectangle and label
-        cv2.rectangle(annotated, (x0, y0), (x1, y1), (0, 255, 0), 2)
-        label = f"{person} ({score:.2f})"
-        cv2.putText(
-            annotated,
-            label,
-            (x0, max(y0 - 10, 0)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 255, 0),
-            1,
-        )
-        # Display each crop
-        cv2.imshow(f"Signature {idx}: {label}", crop)
-
-    # Show full annotated image scaled down
-    h, w = annotated.shape[:2]
-    resized = cv2.resize(annotated, (w // 4, h // 4))
-    cv2.imshow("All Signatures", resized)
+    # Show image
+    cv2.imshow("YOLO Signature Detection with Padding", padded_cv)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-    # Cleanup temp crops
-    for idx in range(num):
-        try:
-            os.remove(f"crop_{idx}.png")
-        except OSError:
-            pass
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) < 2:
+        print("Usage: python debug_signature_detection.py <image_path>")
+    else:
+        detect_and_show(sys.argv[1])

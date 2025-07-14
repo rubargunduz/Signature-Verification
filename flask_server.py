@@ -9,6 +9,7 @@ from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 from signature import match
 from pdf2image import convert_from_path
+from PIL import ImageOps
 
 
 app = Flask(__name__)
@@ -72,8 +73,17 @@ def verify_signature():
 
         # --- Step 1: Detect on given signature ---
         given_pil = Image.open(sig_image_path).convert("RGB")
-        given_cv = cv2.cvtColor(np.array(given_pil), cv2.COLOR_RGB2BGR)
-        given_crop_paths = detect_signature_and_crop(given_pil, given_cv, temp_dir, prefix="given")
+
+        # Calculate padding (10% of width and height)
+        w, h = given_pil.size
+        pad_w = int(w * 0.25)
+        pad_h = int(h * 0.25)
+
+        # Apply padding (white background)
+        given_pil_padded = ImageOps.expand(given_pil, border=(pad_w, pad_h, pad_w, pad_h), fill=(255, 255, 255))
+        given_cv = cv2.cvtColor(np.array(given_pil_padded), cv2.COLOR_RGB2BGR)
+        given_crop_paths = detect_signature_and_crop(given_pil_padded, given_cv, temp_dir, prefix="given")
+
         if not given_crop_paths:
             return jsonify({"message": "No signature detected in the given image"}), 200
         given_crop = given_crop_paths[0]
