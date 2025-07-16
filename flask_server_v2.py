@@ -9,7 +9,7 @@ from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForObjectDetection
 from signature import match
 from pdf2image import convert_from_path
-from PIL import ImageOps
+import requests
 
 
 app = Flask(__name__)
@@ -45,52 +45,50 @@ def detect_signature_and_crop(pil_image, full_image_cv, temp_dir, prefix="sig"):
     return crops
 
 
+
+
 @app.route("/verify-signature", methods=["POST"])
 def verify_signature():
-    
     data = request.get_json()
 
-    if not data or "pdf_base64" not in data or "signature_base64" not in data:
-        return jsonify({"error": "Missing base64 fields"}), 400
+    if not data or "pdf_url" not in data or "signature_url" not in data:
+        return jsonify({"error": "Missing URL fields"}), 400
 
     try:
-        pdf_bytes = base64.b64decode(data["pdf_base64"])
-        sig_bytes = base64.b64decode(data["signature_base64"])
-    except Exception:
-        return jsonify({"error": "Invalid base64 encoding"}), 400
-
+        pdf_response = requests.get(data["pdf_url"])
+        sig_response = requests.get(data["signature_url"])
+        pdf_response.raise_for_status()
+        sig_response.raise_for_status()
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch files: {str(e)}"}), 400
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Save inputs
+        # Save fetched PDF and signature
         pdf_path = os.path.join(temp_dir, "input.pdf")
         sig_image_path = os.path.join(temp_dir, "signature_input.png")
         with open(pdf_path, "wb") as f:
-            f.write(pdf_bytes)
+            f.write(pdf_response.content)
         with open(sig_image_path, "wb") as f:
-            f.write(sig_bytes)
+            f.write(sig_response.content)
 
-
+        # Optional signature detection (disabled by default)
+        # given_crop = sig_image_path
+        # If you want to enable YOLO detection on the given image:
         '''
-        # --- Step 1: Detect on given signature ---
         given_pil = Image.open(sig_image_path).convert("RGB")
-
-        # Calculate padding (10% of width and height)
         w, h = given_pil.size
         pad_w = int(w * 0.25)
         pad_h = int(h * 0.25)
-
-        # Apply padding (white background)
         given_pil_padded = ImageOps.expand(given_pil, border=(pad_w, pad_h, pad_w, pad_h), fill=(255, 255, 255))
         given_cv = cv2.cvtColor(np.array(given_pil_padded), cv2.COLOR_RGB2BGR)
         given_crop_paths = detect_signature_and_crop(given_pil_padded, given_cv, temp_dir, prefix="given")
-
         if not given_crop_paths:
             return jsonify({"message": "No signature detected in the given image"}), 200
-        given_crop = given_crop_paths[0]        
+        given_crop = given_crop_paths[0]
         '''
         given_crop = sig_image_path
 
-        # --- Step 2: Detect on PDF ---
+        # Convert PDF to image
         pages = convert_from_path(
             pdf_path,
             dpi=300,
@@ -101,7 +99,6 @@ def verify_signature():
         if not pages:
             return jsonify({"message": "No pages found in PDF"}), 400
 
-
         pdf_pil = pages[0]
         pdf_cv = cv2.cvtColor(np.array(pdf_pil), cv2.COLOR_RGB2BGR)
         pdf_crop_paths = detect_signature_and_crop(pdf_pil, pdf_cv, temp_dir, prefix="pdf")
@@ -109,18 +106,17 @@ def verify_signature():
         if not pdf_crop_paths:
             return jsonify({"message": "No signatures found in PDF"}), 200
 
-
-        # --- Step 3: Compare ---
+        # Compare
         found_match = False
         best_score = 0.0
         for crop_path in pdf_crop_paths:
             score = float(match(given_crop, crop_path))
-            if score > 80.0:  # Threshold
+            if score > 80.0:
                 found_match = True
-                best_score = float(max(best_score, score))
+                best_score = max(best_score, score)
 
         if found_match:
-            return jsonify({"message": "Signature match found", "score": float(best_score)}), 200
+            return jsonify({"message": "Signature match found", "score": best_score}), 200
         else:
             return jsonify({"message": "Signatures found, but none matched"}), 200
 
