@@ -93,8 +93,7 @@ def verify_signature():
             pdf_path,
             dpi=300,
             first_page=1,
-            last_page=1,
-            poppler_path=r"C:\poppler-24.08.0\Library\bin"
+            last_page=1
         )
         if not pages:
             return jsonify({"message": "No pages found in PDF"}), 400
