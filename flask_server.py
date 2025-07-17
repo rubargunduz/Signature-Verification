@@ -114,7 +114,7 @@ def verify_signature():
         best_score = 0.0
         for crop_path in pdf_crop_paths:
             score = float(match(given_crop, crop_path))
-            if score > 80.0:  # Threshold
+            if score > 85.0:  # Threshold
                 found_match = True
                 best_score = float(max(best_score, score))
 
